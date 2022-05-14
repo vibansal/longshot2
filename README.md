@@ -9,9 +9,10 @@ This repository contains Longshot2 (implemented in python) that implements a two
 
 # Installation 
 
-1. The first step is to compile the python wrapper for C++ spoa library:
+1. The first step is to download and compile the python wrapper for C++ spoa library:
 
 ```
+git clone https://github.com/vibansal/spoa_python.git
 cd spoa_python
 mkdir build
 cd build
