@@ -7,7 +7,10 @@ import subprocess
 import poacaller
 import pysam
 import gzip
-import multiprocessing
+from multithreading import *
+from concurrent.futures import ThreadPoolExecutor
+
+NCORES=6
 
 def read_config(args,filename='config.txt'):
 	#args = {}
@@ -42,13 +45,16 @@ def extract_args_longshot(args_list):
 	return args_table,filtered_args
 
 
-def call_POA(args_table,bam,fasta,outdir,inputvcf,region):
+def call_POA_direct(region,args_table):
 	parser = poacaller.parseargs(empty=True)
 	poa_args=parser.parse_args([]) ## empty 
-	poa_args.bam = bam
-	poa_args.ref = fasta
-	poa_args.out = outdir + '/poa'
-	poa_args.vcf = inputvcf ## longshot snvs vcf file
+	poa_args.bam = args_table[(region,'haplobam')]
+	if not os.path.isfile(poa_args.bam): 
+		print('no haplotype-tag bam file',file=sys.stderr)
+		return 0
+	poa_args.ref = args_table['fasta']
+	poa_args.out = args_table[(region,'poa')]
+	poa_args.vcf = args_table[(region,'outvcf1')] + '.gz' ## longshot snvs vcf file
 	poa_args.region = region
 	#print(poa_args)
 
@@ -57,8 +63,7 @@ def call_POA(args_table,bam,fasta,outdir,inputvcf,region):
 	varcaller.parse_region(region)
 	varcaller.process_bam()
 	varcaller.close_filehandles()
-	poacaller.combinevcfs(poa_args.out,poa_args.ref,BCFTOOLS=args_table['BCFTOOLS'])
-
+	poacaller.combinevcfs(poa_args.out,poa_args.ref,args_table['BCFTOOLS'])
 	return poa_args.out +  '.final.diploid.vcf.gz' ## output vcf file
 
 
@@ -93,7 +98,41 @@ def filter_dense_variants(filename,outfile):
 	f.close()
 	of.close()
 	of_lg.close()
-	
+
+
+def run_longshot(args_table,regions,filtered_args,PASS='first'):
+	task_list = []
+	logs_list = []
+	for region in regions:
+		print('\nrunning longshot',PASS,'pass for SNV calling',region,file=sys.stderr)
+
+		if PASS=='second' and not os.path.isfile(args_table[(region,'haplobam')]): continue
+
+		if PASS == 'first': longshot_cmd =args_table['LONGSHOT'] + ' ' + ' '.join(filtered_args) + ' --out_bam ' + args_table[(region,'haplobam')] + ' --out ' + args_table[(region,'outvcf1')] + ' --region ' + region
+		elif PASS == 'second': longshot_cmd =args_table['LONGSHOT'] + ' ' + ' '.join(filtered_args) + ' -v ' + args_table[(region,'poavcf')]  + '.gz --out ' + args_table[(region,'outvcf2')] + ' --region ' + region + ' -D 100:500:50'
+		#print(longshot_cmd)
+		task_list.append(longshot_cmd)
+		logs_list.append(args_table[(region,'log')])	
+
+	process_tasks(task_list,logs_list,ncores=NCORES)
+	task_list.clear()
+
+def run_POA_python(args_table,regions):
+	task_list = []
+	logs_list = []
+	for region in regions:
+		if not os.path.isfile(args_table[(region,'haplobam')]): continue
+		print('\nrunning POA variant calling on hap-reads',region,file=sys.stderr)
+		poa_cmd ='python3.6 poacaller.py' + ' --bam ' + args_table[(region,'haplobam')] + ' --out ' + args_table[(region,'poa')] + ' --region ' + region + ' --vcf ' + args_table[(region,'outvcf1')] + '.gz' + ' --ref ' + args_table['fasta']
+		task_list.append(poa_cmd)
+		print(poa_cmd)
+		logs_list.append(args_table[(region,'log')])	
+	process_tasks(task_list,logs_list,ncores=NCORES)
+	task_list.clear()
+
+
+
+#################################################################################################################################	
 
 def main():
 	args_table,filtered_args = extract_args_longshot(sys.argv[1:])
@@ -109,39 +148,60 @@ def main():
 	regions = []
 	if 'region' not in args_table: 
 		pyfasta = pysam.Fastafile(args_table['fasta'])
-		for contig in pyfasta.references: regions.append(contig)
+		for contig in pyfasta.references: 
+			rlength = pyfasta.get_reference_length(contig)
+			regions.append(contig + ':1-' + str(min(rlength,250000)))
+			#if len(regions) > 5: break
 	else: regions.append(args_table['region'])
-	
+
+	counter=0
 	for region in regions:
-		print('\n\nrunning longshot first pass for SNV calling',region,file=sys.stderr)
-		args_table['haplobam'] = args_table['OUTDIR'] + '/haplotag.bam'
-		args_table['poavcf'] = args_table['OUTDIR'] + '/poa_filtered.vcf'
-		args_table['poavcf_gz'] = args_table['OUTDIR'] + '/poa_filtered.vcf.gz'
-		args_table['outvcf1'] = args_table['OUTDIR'] + '/snvs.vcf'
-		args_table['outvcf2'] = args_table['OUTDIR'] + '/snvs_indels.vcf'
-		args_table['region'] = region
+		args_table[(region,'haplobam')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.haplotag.bam'
+		args_table[(region,'outvcf1')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.snvs.vcf'
+		args_table[(region,'outvcf2')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.snvs_indels.vcf'
+		args_table[(region,'poavcf')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.poa_filtered.vcf'
+		args_table[(region,'poa')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.poa'
+		args_table[(region,'log')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.log'
+		counter+=1
 
-		longshot_cmd =args_table['LONGSHOT'] + ' ' + ' '.join(filtered_args) + ' --out_bam ' + args_table['haplobam'] + ' --out ' + args_table['outvcf1'] + ' --region ' + region
-		#print(longshot_cmd)
-		subprocess.call(longshot_cmd,shell=True)
-		subprocess.call('bgzip -f ' + args_table['outvcf1'],shell=True)
-		subprocess.call('tabix -f ' + args_table['outvcf1'] + '.gz',shell=True)
+	##################################################################################################
 
-		if not os.path.isfile(args_table['haplobam']): 
-			print('no haplotype-tag bam file',file=sys.stderr)
-			continue
+	run_longshot(args_table,regions,filtered_args,PASS='first')
+	print('gzipping and indexing vcf files',file=sys.stderr)
+	for region in regions:
+		subprocess.call('bgzip -f ' + args_table[(region,'outvcf1')],shell=True)
+		subprocess.call('tabix -f ' + args_table[(region,'outvcf1')] + '.gz',shell=True)
 
-		output_vcf_poa = call_POA(args_table,args_table['haplobam'],args_table['fasta'],args_table['OUTDIR'],args_table['outvcf1'] + '.gz',region)
 
-		filter_dense_variants(output_vcf_poa,args_table['poavcf'])
-		subprocess.call('bgzip -f ' + args_table['poavcf'],shell=True)
-		subprocess.call('tabix -f ' + args_table['poavcf_gz'],shell=True)
+	print('running POA consensus based variant detection',file=sys.stderr)
+	run_POA_python(args_table,regions)
 
-		print('\n\nre-running longshot with POA variants as input',file=sys.stderr)
-		longshot_cmd =args_table['LONGSHOT'] + ' ' + ' '.join(filtered_args) + ' -v ' + args_table['poavcf_gz']  + ' --out ' + args_table['outvcf2'] + ' --region ' + region + ' -D 100:500:50'
-		subprocess.call(longshot_cmd,shell=True)
+	print('filtering dense clusters of variants',file=sys.stderr)
+	for region in regions:
+		if not os.path.isfile(args_table[(region,'haplobam')]): continue
+		filter_dense_variants(args_table[(region,'poa')]+'.final.diploid.vcf.gz',args_table[(region,'poavcf')])
+		subprocess.call('bgzip -f ' + args_table[(region,'poavcf')],shell=True)
+		subprocess.call('tabix -f ' + args_table[(region,'poavcf')] + '.gz',shell=True)
+	
+	run_longshot(args_table,regions,filtered_args,PASS='second')
+	print('gzipping and indexing vcf files',file=sys.stderr)
+	for region in regions:
+		if not os.path.isfile(args_table[(region,'haplobam')]): 
+			## if vcf file for a region is empty and no haplotagged bam file...
+			subprocess.call('cp ' + args_table[(region,'outvcf1')] + '.gz'  + ' ' + args_table[(region,'outvcf2')] + '.gz',shell=True)
+		else: 
+			subprocess.call('bgzip -f ' + args_table[(region,'outvcf2')],shell=True)
 
-	subprocess.call('cp ' + args_table['outvcf2'] + ' ' + args_table['out'],shell=True)
+		subprocess.call('tabix -f ' + args_table[(region,'outvcf2')] + '.gz',shell=True)
+			
+	print('combining individual vcf files into single output'); 
+	concat_cmd = args_table['BCFTOOLS'] + ' concat -o ' + args_table['out'] + ' ' + ' '.join([args_table[(region,'outvcf2')] + '.gz' for region in regions])
+	subprocess.call(concat_cmd,shell=True)
+	
+	##################################################################################################
+	#futures=[]
+	#with ThreadPoolExecutor(max_workers=NCORES) as executor:
+	#	for region in regions: futures.append(executor.submit(call_POA,region,args_table))
 
 
 if __name__ == "__main__":
