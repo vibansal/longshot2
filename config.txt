@@ -1,4 +1,5 @@
-LONGSHOT=/home/vbansal/CODE/JOINTCODE-coral/longshot/target/release/longshot
-BCFTOOLS=/home/vbansal/Public/tools/bcftools-1.12/bcftools
+LONGSHOT=../target/release/longshot
+BCFTOOLS=~/Public/tools/bcftools-1.12/bcftools
+TABIX=t
 OUTDIR=longshot.poa.temp
 CORES=1

@@ -125,7 +125,7 @@ def main():
 		#print(longshot_cmd)
 		subprocess.call(longshot_cmd,shell=True)
 		subprocess.call('bgzip -f ' + args_table['outvcf1'],shell=True)
-		subprocess.call(args_table['TABIX'] + ' -f ' + args_table['outvcf1'] + '.gz',shell=True)
+		subprocess.call('tabix -f ' + args_table['outvcf1'] + '.gz',shell=True)
 
 		if not os.path.isfile(args_table['haplobam']): 
 			print('no haplotype-tag bam file',file=sys.stderr)
@@ -135,7 +135,7 @@ def main():
 
 		filter_dense_variants(output_vcf_poa,args_table['poavcf'])
 		subprocess.call('bgzip -f ' + args_table['poavcf'],shell=True)
-		subprocess.call(args_table['TABIX'] + ' -f ' + args_table['poavcf_gz'],shell=True)
+		subprocess.call('tabix -f ' + args_table['poavcf_gz'],shell=True)
 
 		print('\n\nre-running longshot with POA variants as input',file=sys.stderr)
 		longshot_cmd =args_table['LONGSHOT'] + ' ' + ' '.join(filtered_args) + ' -v ' + args_table['poavcf_gz']  + ' --out ' + args_table['outvcf2'] + ' --region ' + region + ' -D 100:500:50'
