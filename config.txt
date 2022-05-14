@@ -1,5 +1,4 @@
 LONGSHOT=../target/release/longshot
 BCFTOOLS=~/Public/tools/bcftools-1.12/bcftools
-TABIX=t
 OUTDIR=longshot.poa.temp
 CORES=1
