@@ -143,7 +143,7 @@ def get_regions(args_table,MAX_REGION_LENGTH=25000000):
 		for contig in pyfasta.references: 
 			rlength = pyfasta.get_reference_length(contig)
 			region_lst.append(contig + ':1-' + str(min(rlength,TEST_LEN)))
-			if len(region_lst) > 22: break
+			#if len(region_lst) > 22: break
 		pyfasta.close()
 	return region_lst
 
