@@ -1,7 +1,7 @@
 
 # Introduction
 
-This repository contains Longshot2 (implemented in python) that implements a two-pass approach to variant calling (both SNVs and short indels) for long reads. Longshot2 uses a C++ implementation of the POA algorithm (https://github.com/rvaser/spoa) and the Longshot tool (github.com/pjedge/longshot). 
+This repository contains Longshot2 (implemented in python) that implements a two-pass approach to variant calling (both SNVs and short indels) for long reads. Longshot2 uses a C++ implementation of the POA algorithm (https://github.com/rvaser/spoa) and the Longshot tool (github.com/pjedge/longshot). Longshot2 also allows for runningthe variant calling in parallel resulting in significant speed-up. 
 
 Longshot is a variant calling tool for diploid genomes using long error prone reads such as Pacific Biosciences (PacBio) SMRT and Oxford Nanopore Technologies (ONT)
 available from https://github.com/pjedge/longshot
@@ -40,7 +40,8 @@ cp -r spoa_python/spoa .
 
 python3.6 longshot2.py [args] 
 
-The python program expects the same arguments as used for longshot. Currently, the "--region" option is required.
+The python program expects the same arguments as used for longshot. If the "--region" option is not provided, all chromosomes/contigs are processed
+separately and the VCF files are merged.
 
 Example command:
 
