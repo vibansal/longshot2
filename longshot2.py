@@ -9,6 +9,8 @@ import pysam
 import gzip
 from multithreading import *
 
+TEST_LEN=10000000000
+
 def read_config(args,filename='config.txt'):
 	File = open(args['PATH'] + '/' + filename)
 	for line in File:
@@ -27,6 +29,9 @@ def extract_args_longshot(args_list):
 		elif args_list[i] == '--ref'  or args_list[i] == '-f': args_table['fasta'] = args_list[i+1]
 		elif args_list[i] == '--out'  or args_list[i] == '-o': 
 			args_table['out'] = args_list[i+1]
+			include_vec[i] = 0
+			include_vec[i+1]=0
+		elif args_list[i] == '--density_params'  or args_list[i] == '-D': 
 			include_vec[i] = 0
 			include_vec[i+1]=0
 		elif args_list[i] == '--out_bam'  or args_list[i] == '-O': 
@@ -102,11 +107,15 @@ def run_longshot(args_table,regions,filtered_args,PASS='first'):
 		#print('\nrunning longshot',PASS,'pass for SNV calling',region,file=sys.stderr)
 		if PASS=='second' and not os.path.isfile(args_table[(region,'haplobam')]): continue
 
-		if PASS == 'first': longshot_cmd =args_table['LONGSHOT'] + ' ' + ' '.join(filtered_args) + ' --out_bam ' + args_table[(region,'haplobam')] + ' --out ' + args_table[(region,'outvcf1')] + ' --region ' + region
-		elif PASS == 'second': longshot_cmd =args_table['LONGSHOT'] + ' ' + ' '.join(filtered_args) + ' -v ' + args_table[(region,'poavcf')]  + '.gz --out ' + args_table[(region,'outvcf2')] + ' --region ' + region + ' -D 100:500:50'
+		if PASS == 'first': 
+			longshot_cmd =args_table['LONGSHOT'] + ' ' + ' '.join(filtered_args) + ' --out ' + args_table[(region,'outvcf1')] + ' --region ' + region
+			if args_table['INDELS'] == '1': longshot_cmd += ' --out_bam ' + args_table[(region,'haplobam')]
+			logs_list.append(args_table[(region,'log1')])	
+		elif PASS == 'second': 
+			longshot_cmd =args_table['LONGSHOT'] + ' ' + ' '.join(filtered_args) + ' -v ' + args_table[(region,'poavcf')]  + '.gz --out ' + args_table[(region,'outvcf2')] + ' --region ' + region + ' -D 100:500:50'
+			logs_list.append(args_table[(region,'log2')])	
 		#print(longshot_cmd)
 		task_list.append(longshot_cmd)
-		logs_list.append(args_table[(region,'log')])	
 
 	process_tasks(task_list,logs_list,ncores=int(args_table['NCORES']))
 	task_list.clear()
@@ -119,7 +128,7 @@ def run_POA_python(args_table,regions):
 		#print('\nrunning POA variant calling on hap-reads',region,file=sys.stderr)
 		poa_cmd =args_table['PYTHON'] + ' ' + args_table['PATH'] + '/poacaller.py' + ' --bam ' + args_table[(region,'haplobam')] + ' --out ' + args_table[(region,'poa')] + ' --region ' + region + ' --vcf ' + args_table[(region,'outvcf1')] + '.gz' + ' --ref ' + args_table['fasta']
 		task_list.append(poa_cmd)
-		logs_list.append(args_table[(region,'log')])	
+		logs_list.append(args_table[(region,'plog')])	
 	process_tasks(task_list,logs_list,ncores=int(args_table['NCORES']))
 	task_list.clear()
 
@@ -131,7 +140,6 @@ def main():
 	args_table,filtered_args = extract_args_longshot(sys.argv[1:])
 	args_table['PATH'] = os.path.dirname(os.path.abspath(__file__))
 	read_config(args_table)
-	#if 'F' in args_table and os.path.isdir(args_table['out']): 
 	if os.path.isdir(args_table['OUTDIR']): 
 		print('output directory is not empty',file=sys.stderr)
 		sys.exit()
@@ -141,36 +149,43 @@ def main():
 		sys.exit()
 	#print(args_table,'\n')
 
-	os.makedirs(args_table['OUTDIR'])
-
 	regions = []
 	if 'region' not in args_table: 
 		pyfasta = pysam.Fastafile(args_table['fasta'])
 		for contig in pyfasta.references: 
 			rlength = pyfasta.get_reference_length(contig)
-			regions.append(contig + ':1-' + str(min(rlength,500000)))
-			if len(regions) > 10: break
+			regions.append(contig + ':1-' + str(min(rlength,TEST_LEN)))
+			if len(regions) > 22: break
+		pyfasta.close()
 	else: regions.append(args_table['region'])
 
+	os.makedirs(args_table['OUTDIR'])
 	counter=0
 	for region in regions:
-		args_table[(region,'haplobam')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.haplotag.bam'
-		args_table[(region,'outvcf1')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.snvs.vcf'
-		args_table[(region,'outvcf2')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.snvs_indels.vcf'
-		args_table[(region,'poavcf')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.poa_filtered.vcf'
-		args_table[(region,'poa')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.poa'
-		args_table[(region,'log')] = args_table['OUTDIR'] + '/contig' + str(counter) + '.log'
+		os.makedirs(args_table['OUTDIR']+'/contig' + str(counter))
+		args_table[(region,'haplobam')] = args_table['OUTDIR'] + '/contig' + str(counter) + '/haplotag.bam'
+		args_table[(region,'outvcf1')] = args_table['OUTDIR'] + '/contig' + str(counter) + '/snvs.vcf'
+		args_table[(region,'outvcf2')] = args_table['OUTDIR'] + '/contig' + str(counter) + '/snvs_indels.vcf'
+		args_table[(region,'poavcf')] = args_table['OUTDIR'] + '/contig' + str(counter) + '/poa_filtered.vcf'
+		args_table[(region,'poa')] = args_table['OUTDIR'] + '/contig' + str(counter) + '/poa'
+		args_table[(region,'log1')] = args_table['OUTDIR'] + '/contig' + str(counter) + '/log1'
+		args_table[(region,'log2')] = args_table['OUTDIR'] + '/contig' + str(counter) + '/log2'
+		args_table[(region,'plog')] = args_table['OUTDIR'] + '/contig' + str(counter) + '/plog'
 		counter+=1
 
 	##################################################################################################
 
-	print('running longshot first pass on',counter,'regions using',args_table['NCORES'],'threads/cpus',file=sys.stderr)
+	print('running longshot first pass on',counter,'regions using',args_table['NCORES'],'threads/cpus','\n',regions,file=sys.stderr)
 	run_longshot(args_table,regions,filtered_args,PASS='first')
 	print('gzipping and indexing vcf files',file=sys.stderr)
 	for region in regions:
 		subprocess.call('bgzip -f ' + args_table[(region,'outvcf1')],shell=True)
 		subprocess.call('tabix -f ' + args_table[(region,'outvcf1')] + '.gz',shell=True)
 
+	if args_table['INDELS'] == '0': ## don't call indels 
+		concat_cmd = args_table['BCFTOOLS'] + ' concat -o ' + args_table['out'] + ' ' + ' '.join([args_table[(region,'outvcf1')] + '.gz' for region in regions])
+		subprocess.call(concat_cmd,shell=True)
+		return 1		
 
 	print('running POA consensus based variant detection',file=sys.stderr)
 	run_POA_python(args_table,regions)
