@@ -1,4 +1,5 @@
-LONGSHOT=../target/release/longshot
+LONGSHOT=/home/vbansal/CODE/JOINTCODE-coral/longshot/target/release/longshot
 BCFTOOLS=~/Public/tools/bcftools-1.12/bcftools
 OUTDIR=longshot.poa.temp
-CORES=1
+NCORES=6
+PYTHON=python3.6

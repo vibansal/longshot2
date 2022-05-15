@@ -8,18 +8,13 @@ import poacaller
 import pysam
 import gzip
 from multithreading import *
-from concurrent.futures import ThreadPoolExecutor
-
-NCORES=6
 
 def read_config(args,filename='config.txt'):
-	#args = {}
-	File = open(filename)
+	File = open(args['PATH'] + '/' + filename)
 	for line in File:
 		option = line.strip().split('=')
 		args[option[0]] = option[1]
 	File.close()
-	#return args
 
 def extract_args_longshot(args_list):
 	args_table= {}
@@ -104,8 +99,7 @@ def run_longshot(args_table,regions,filtered_args,PASS='first'):
 	task_list = []
 	logs_list = []
 	for region in regions:
-		print('\nrunning longshot',PASS,'pass for SNV calling',region,file=sys.stderr)
-
+		#print('\nrunning longshot',PASS,'pass for SNV calling',region,file=sys.stderr)
 		if PASS=='second' and not os.path.isfile(args_table[(region,'haplobam')]): continue
 
 		if PASS == 'first': longshot_cmd =args_table['LONGSHOT'] + ' ' + ' '.join(filtered_args) + ' --out_bam ' + args_table[(region,'haplobam')] + ' --out ' + args_table[(region,'outvcf1')] + ' --region ' + region
@@ -114,7 +108,7 @@ def run_longshot(args_table,regions,filtered_args,PASS='first'):
 		task_list.append(longshot_cmd)
 		logs_list.append(args_table[(region,'log')])	
 
-	process_tasks(task_list,logs_list,ncores=NCORES)
+	process_tasks(task_list,logs_list,ncores=int(args_table['NCORES']))
 	task_list.clear()
 
 def run_POA_python(args_table,regions):
@@ -122,12 +116,11 @@ def run_POA_python(args_table,regions):
 	logs_list = []
 	for region in regions:
 		if not os.path.isfile(args_table[(region,'haplobam')]): continue
-		print('\nrunning POA variant calling on hap-reads',region,file=sys.stderr)
-		poa_cmd ='python3.6 poacaller.py' + ' --bam ' + args_table[(region,'haplobam')] + ' --out ' + args_table[(region,'poa')] + ' --region ' + region + ' --vcf ' + args_table[(region,'outvcf1')] + '.gz' + ' --ref ' + args_table['fasta']
+		#print('\nrunning POA variant calling on hap-reads',region,file=sys.stderr)
+		poa_cmd =args_table['PYTHON'] + ' ' + args_table['PATH'] + '/poacaller.py' + ' --bam ' + args_table[(region,'haplobam')] + ' --out ' + args_table[(region,'poa')] + ' --region ' + region + ' --vcf ' + args_table[(region,'outvcf1')] + '.gz' + ' --ref ' + args_table['fasta']
 		task_list.append(poa_cmd)
-		print(poa_cmd)
 		logs_list.append(args_table[(region,'log')])	
-	process_tasks(task_list,logs_list,ncores=NCORES)
+	process_tasks(task_list,logs_list,ncores=int(args_table['NCORES']))
 	task_list.clear()
 
 
@@ -136,12 +129,17 @@ def run_POA_python(args_table,regions):
 
 def main():
 	args_table,filtered_args = extract_args_longshot(sys.argv[1:])
+	args_table['PATH'] = os.path.dirname(os.path.abspath(__file__))
 	read_config(args_table)
 	#if 'F' in args_table and os.path.isdir(args_table['out']): 
-	if 'bam' not in args_table or 'fasta' not in args_table or os.path.isdir(args_table['OUTDIR']): 
-		print('check input arguments',file=sys.stderr)
+	if os.path.isdir(args_table['OUTDIR']): 
+		print('output directory is not empty',file=sys.stderr)
 		sys.exit()
-	print(args_table,'\n')
+	elif 'bam' not in args_table or 'fasta' not in args_table or 'out' not in args_table:
+		print('minimum input arguments for longshot not satisfied',file=sys.stderr)
+		subprocess.call(args_table['LONGSHOT'] ,shell=True)
+		sys.exit()
+	#print(args_table,'\n')
 
 	os.makedirs(args_table['OUTDIR'])
 
@@ -150,8 +148,8 @@ def main():
 		pyfasta = pysam.Fastafile(args_table['fasta'])
 		for contig in pyfasta.references: 
 			rlength = pyfasta.get_reference_length(contig)
-			regions.append(contig + ':1-' + str(min(rlength,250000)))
-			#if len(regions) > 5: break
+			regions.append(contig + ':1-' + str(min(rlength,500000)))
+			if len(regions) > 10: break
 	else: regions.append(args_table['region'])
 
 	counter=0
@@ -166,6 +164,7 @@ def main():
 
 	##################################################################################################
 
+	print('running longshot first pass on',counter,'regions using',args_table['NCORES'],'threads/cpus',file=sys.stderr)
 	run_longshot(args_table,regions,filtered_args,PASS='first')
 	print('gzipping and indexing vcf files',file=sys.stderr)
 	for region in regions:
